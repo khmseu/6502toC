@@ -46,8 +46,7 @@ def test_cli_prints_conversion_warnings_to_stderr(tmp_path: Path):
     input_path = tmp_path / "input.lst"
     output_path = tmp_path / "out.cpp"
     input_path.write_text(
-        "1000  4C 01 20          JMP   $2001\n"
-        "2000              DB    $01,$02\n",
+        "1000  4C 01 20          JMP   $2001\n" "2000              DB    $01,$02\n",
         encoding="ascii",
     )
 

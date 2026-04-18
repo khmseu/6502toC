@@ -169,8 +169,7 @@ def test_jump_into_interior_of_multi_byte_db_emits_warning():
 
 def test_jump_into_interior_of_multi_word_dw_emits_warning():
     listing_text = (
-        "1000  20 03 30          JSR   $3003\n"
-        "3000              DW    $1111,$2222\n"
+        "1000  20 03 30          JSR   $3003\n" "3000              DW    $1111,$2222\n"
     )
     parsed = parse_listing(listing_text)
     ir = build_ir(parsed)
