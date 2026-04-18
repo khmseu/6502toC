@@ -102,7 +102,11 @@ def _parse_code_record(raw_line: str, line_number: int):
     if _ADDRESS_RE.match(tokens[token_index]):
         address = tokens[token_index].upper()
         token_index += 1
-        while token_index < len(tokens) and _BYTE_RE.match(tokens[token_index]):
+        while (
+            token_index < len(tokens)
+            and _BYTE_RE.match(tokens[token_index])
+            and tokens[token_index].upper() not in _DATA_DIRECTIVES
+        ):
             data_bytes.append(tokens[token_index].upper())
             token_index += 1
 
