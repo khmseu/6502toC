@@ -480,28 +480,31 @@ def _emit_instruction_lines(
 
     if mnemonic == "JMP":
         if _INDIRECT_RE.match(operand):
-            lines.append(
-                f'    std::fprintf(stderr, "unimplemented: JMP {operand}\\n"); {cmt}'
-            )
+            addr_expr = _operand_to_addr_expr(operand, resolved_syms)
+            lines.append(f"    external_jump({addr_expr}); {cmt}")
+            lines.append("    return;")
+            return lines
+        if operand in entry_label_set:
+            lines.append(f"    goto _lbl_{_sanitize(operand)}; {cmt}")
             return lines
         val = _parse_numeric(operand)
         if val is not None or _find_sym_cpp(operand, resolved_syms) is not None:
-            lines.append(
-                f'    std::fprintf(stderr, "unimplemented: JMP {operand}\\n"); {cmt}'
-            )
+            addr_expr = _base_to_addr_cpp(operand, resolved_syms)
+            lines.append(f"    external_jump({addr_expr}); {cmt}")
+            lines.append("    return;")
         else:
             lines.append(f"    goto _lbl_{_sanitize(operand)}; {cmt}")
         return lines
 
     if mnemonic == "JSR":
+        if operand in entry_label_set:
+            lines.append(f"    run_{_sanitize(operand)}(ctx); {cmt}")
+            return lines
         val = _parse_numeric(operand)
         sym = _find_sym_cpp(operand, resolved_syms)
         if val is not None or sym is not None:
-            lines.append(
-                f'    std::fprintf(stderr, "unimplemented: JSR {operand}\\n"); {cmt}'
-            )
-        elif operand in entry_label_set:
-            lines.append(f"    run_{_sanitize(operand)}(ctx); {cmt}")
+            addr_expr = _base_to_addr_cpp(operand, resolved_syms)
+            lines.append(f"    external_call({addr_expr}); {cmt}")
         else:
             lines.append(f"    run_{_sanitize(operand)}(ctx); {cmt}")
         return lines
@@ -582,6 +585,8 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
     out.append("extern void io_write(std::uint16_t addr, std::uint8_t val);")
     out.append("extern std::uint8_t mem_read(std::uint16_t addr);")
     out.append("extern void mem_write(std::uint16_t addr, std::uint8_t val);")
+    out.append("extern void external_call(std::uint16_t addr);")
+    out.append("extern void external_jump(std::uint16_t addr);")
     out.append("")
 
     out.append("// 6502 machine context")

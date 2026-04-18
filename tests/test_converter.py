@@ -18,6 +18,8 @@ def expected_scaffold(source_line_count: int) -> str:
         "extern void io_write(std::uint16_t addr, std::uint8_t val);\n"
         "extern std::uint8_t mem_read(std::uint16_t addr);\n"
         "extern void mem_write(std::uint16_t addr, std::uint8_t val);\n"
+        "extern void external_call(std::uint16_t addr);\n"
+        "extern void external_jump(std::uint16_t addr);\n"
         "\n"
         "// 6502 machine context\n"
         "struct Context {\n"

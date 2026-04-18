@@ -360,22 +360,22 @@ def test_sta_absolute_non_io_uses_mem_write():
     assert "mem_write(0x2000U, ctx.A);" in output
 
 
-def test_jsr_external_address_emits_runtime_warning():
+def test_jsr_external_address_emits_external_call_shim():
     listing = "1000 20 00 C0   JSR   $C000\n"
     ir = _ir_from_listing(listing)
     output = generate_cpp(ir, 1)
-    assert 'std::fprintf(stderr, "unimplemented: JSR $C000\\n");' in output
+    assert "external_call(0xC000U);" in output
 
 
-def test_jmp_external_address_emits_runtime_warning():
+def test_jmp_external_address_emits_external_jump_shim():
     listing = "1000 4C 00 C0   JMP   $C000\n"
     ir = _ir_from_listing(listing)
     output = generate_cpp(ir, 1)
-    assert 'std::fprintf(stderr, "unimplemented: JMP $C000\\n");' in output
+    assert "external_jump(0xC000U);" in output
 
 
-def test_jmp_indirect_emits_runtime_warning():
+def test_jmp_indirect_emits_external_jump_shim():
     listing = "1000 6C 00 20   JMP   ($2000)\n"
     ir = _ir_from_listing(listing)
     output = generate_cpp(ir, 1)
-    assert 'std::fprintf(stderr, "unimplemented: JMP ($2000)\\n");' in output
+    assert "external_jump(static_cast<std::uint16_t>(mem_read(0x2000U) | mem_read(static_cast<std::uint16_t>(0x2000U + 1U)) << 8));" in output
