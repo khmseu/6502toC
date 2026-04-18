@@ -1,4 +1,5 @@
 import argparse
+import sys
 from pathlib import Path
 
 from .converter import convert_listing_to_cpp
@@ -16,7 +17,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    convert_listing_to_cpp(Path(args.input_listing), Path(args.output_cpp))
+    result = convert_listing_to_cpp(Path(args.input_listing), Path(args.output_cpp))
+    for warning in result.get("warnings", []):
+        kind = warning.get("kind", "warning")
+        message = warning.get("message", "")
+        print(f"[{kind}] {message}", file=sys.stderr)
     return 0
 
 

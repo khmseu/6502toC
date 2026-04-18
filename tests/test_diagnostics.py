@@ -151,6 +151,38 @@ def test_symbolic_jump_to_data_region_emits_warning():
     assert w["target_address"] == 0x2000
 
 
+def test_jump_into_interior_of_multi_byte_db_emits_warning():
+    listing_text = (
+        "1000  4C 02 20          JMP   $2002\n"
+        "2000              DB    $11,$22,$33,$44\n"
+    )
+    parsed = parse_listing(listing_text)
+    ir = build_ir(parsed)
+    warnings = run_diagnostics(parsed, ir)
+
+    kinds = [w["kind"] for w in warnings]
+    assert "jump_to_data_region" in kinds
+
+    w = next(w for w in warnings if w["kind"] == "jump_to_data_region")
+    assert w["target_address"] == 0x2002
+
+
+def test_jump_into_interior_of_multi_word_dw_emits_warning():
+    listing_text = (
+        "1000  20 03 30          JSR   $3003\n"
+        "3000              DW    $1111,$2222\n"
+    )
+    parsed = parse_listing(listing_text)
+    ir = build_ir(parsed)
+    warnings = run_diagnostics(parsed, ir)
+
+    kinds = [w["kind"] for w in warnings]
+    assert "jump_to_data_region" in kinds
+
+    w = next(w for w in warnings if w["kind"] == "jump_to_data_region")
+    assert w["target_address"] == 0x3003
+
+
 # ---------------------------------------------------------------------------
 # Integration: converter returns diagnostics
 # ---------------------------------------------------------------------------

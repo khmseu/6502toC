@@ -40,3 +40,19 @@ def test_cli_argument_error_behavior():
 
     assert result.returncode != 0
     assert "usage:" in result.stderr.lower()
+
+
+def test_cli_prints_conversion_warnings_to_stderr(tmp_path: Path):
+    input_path = tmp_path / "input.lst"
+    output_path = tmp_path / "out.cpp"
+    input_path.write_text(
+        "1000  4C 01 20          JMP   $2001\n"
+        "2000              DB    $01,$02\n",
+        encoding="ascii",
+    )
+
+    result = run_cli(str(input_path), str(output_path))
+
+    assert result.returncode == 0
+    assert output_path.exists()
+    assert "jump_to_data_region" in result.stderr
