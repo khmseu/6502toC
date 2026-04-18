@@ -378,4 +378,7 @@ def test_jmp_indirect_emits_external_jump_shim():
     listing = "1000 6C 00 20   JMP   ($2000)\n"
     ir = _ir_from_listing(listing)
     output = generate_cpp(ir, 1)
-    assert "external_jump(static_cast<std::uint16_t>(mem_read(0x2000U) | mem_read(static_cast<std::uint16_t>(0x2000U + 1U)) << 8));" in output
+    assert (
+        "external_jump(static_cast<std::uint16_t>(mem_read(0x2000U) | mem_read(static_cast<std::uint16_t>(0x2000U + 1U)) << 8));"
+        in output
+    )
