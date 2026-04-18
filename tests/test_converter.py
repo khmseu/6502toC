@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from listing_to_cpp.converter import convert_listing_to_cpp
+from listing_to_cpp.ir import build_ir
+from listing_to_cpp.parser import parse_listing
 
 
 def expected_scaffold(source_line_count: int) -> str:
@@ -11,6 +13,148 @@ def expected_scaffold(source_line_count: int) -> str:
         f"constexpr std::uint32_t generated_from_lines = {source_line_count};\n"
         "}  // namespace converted\n"
     )
+
+
+def test_build_ir_resolves_equ_symbols_to_numeric_values():
+    listing_text = """SCREEN EQU $C000
+COUNT EQU 16
+HERE EQU *
+"""
+
+    parsed = parse_listing(listing_text)
+    ir = build_ir(parsed)
+
+    assert ir["symbols"]["SCREEN"]["value"] == 0xC000
+    assert ir["symbols"]["COUNT"]["value"] == 16
+    assert ir["symbols"]["HERE"]["value"] is None
+    assert ir["symbols"]["HERE"]["is_current_location_alias"] is True
+
+
+def test_build_ir_detects_explicit_c000_cfff_accesses_direct_and_symbolic():
+    listing_text = """SCREEN EQU $C000
+1234  8D 00 C0             STA   $C000
+1237  AD 00 C0             LDA   SCREEN
+"""
+
+    parsed = parse_listing(listing_text)
+    ir = build_ir(parsed)
+
+    assert len(ir["instructions"]) == 2
+    assert ir["io_accesses"] == [
+        {
+            "line": 2,
+            "mnemonic": "STA",
+            "operand": "$C000",
+            "source": "direct",
+            "resolved_address": 0xC000,
+            "classification": "explicit_c000_cfff",
+        },
+        {
+            "line": 3,
+            "mnemonic": "LDA",
+            "operand": "SCREEN",
+            "source": "symbolic",
+            "resolved_address": 0xC000,
+            "classification": "explicit_c000_cfff",
+        },
+    ]
+
+
+def test_build_ir_detects_explicit_indexed_c000_cfff_accesses_direct_and_symbolic():
+    listing_text = """SCREEN EQU $C000
+1234  BD 00 C0             LDA   $C000,X
+1237  B9 10 C0             LDA   $C010,Y
+123A  BD 00 C0             LDA   0xC000,X
+123D  B9 00 C0             LDA   SCREEN,Y
+"""
+
+    parsed = parse_listing(listing_text)
+    ir = build_ir(parsed)
+
+    assert len(ir["instructions"]) == 4
+    assert ir["io_accesses"] == [
+        {
+            "line": 2,
+            "mnemonic": "LDA",
+            "operand": "$C000,X",
+            "source": "direct",
+            "resolved_address": 0xC000,
+            "classification": "explicit_c000_cfff",
+        },
+        {
+            "line": 3,
+            "mnemonic": "LDA",
+            "operand": "$C010,Y",
+            "source": "direct",
+            "resolved_address": 0xC010,
+            "classification": "explicit_c000_cfff",
+        },
+        {
+            "line": 4,
+            "mnemonic": "LDA",
+            "operand": "0xC000,X",
+            "source": "direct",
+            "resolved_address": 0xC000,
+            "classification": "explicit_c000_cfff",
+        },
+        {
+            "line": 5,
+            "mnemonic": "LDA",
+            "operand": "SCREEN,Y",
+            "source": "symbolic",
+            "resolved_address": 0xC000,
+            "classification": "explicit_c000_cfff",
+        },
+    ]
+
+
+def test_build_ir_resolves_symbols_case_insensitively_for_equ_and_operands():
+    listing_text = """ScReEn EQU $C000
+1234  AD 00 C0             LDA   SCREEN
+1237  B9 00 C0             LDA   screen,Y
+"""
+
+    parsed = parse_listing(listing_text)
+    ir = build_ir(parsed)
+
+    assert ir["symbols"]["ScReEn"]["value"] == 0xC000
+    assert ir["io_accesses"] == [
+        {
+            "line": 2,
+            "mnemonic": "LDA",
+            "operand": "SCREEN",
+            "source": "symbolic",
+            "resolved_address": 0xC000,
+            "classification": "explicit_c000_cfff",
+        },
+        {
+            "line": 3,
+            "mnemonic": "LDA",
+            "operand": "screen,Y",
+            "source": "symbolic",
+            "resolved_address": 0xC000,
+            "classification": "explicit_c000_cfff",
+        },
+    ]
+
+
+def test_build_ir_tags_unresolved_indirect_accesses_as_uncertain_warning():
+    listing_text = """1000  B1 20                LDA   ($20),Y
+"""
+
+    parsed = parse_listing(listing_text)
+    ir = build_ir(parsed)
+
+    assert len(ir["instructions"]) == 1
+    assert ir["warnings"] == [
+        {
+            "kind": "uncertain_indirect_access",
+            "line": 1,
+            "mnemonic": "LDA",
+            "operand": "($20),Y",
+            "message": "Unresolved indirect memory access; cannot determine whether it targets 0xC000-0xCFFF.",
+        }
+    ]
 
 
 def test_converter_writes_expected_scaffold_with_trailing_newline(tmp_path: Path):
