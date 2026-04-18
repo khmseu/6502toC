@@ -1,15 +1,13 @@
 """Phase 4 tests: legal C++ emission and multi-entry support."""
 
-import pytest
-
 from listing_to_cpp.generator import generate_cpp
 from listing_to_cpp.ir import build_ir
 from listing_to_cpp.parser import parse_listing
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _empty_ir():
     return {"symbols": {}, "instructions": [], "io_accesses": [], "warnings": []}
@@ -22,6 +20,7 @@ def _ir_from_listing(text: str):
 # ---------------------------------------------------------------------------
 # 1. Valid C++ scaffolding
 # ---------------------------------------------------------------------------
+
 
 def test_scaffold_contains_cstdint_include():
     output = generate_cpp(_empty_ir(), 0)
@@ -75,6 +74,7 @@ def test_scaffold_output_is_ascii_only():
 # 2. Symbol constants
 # ---------------------------------------------------------------------------
 
+
 def test_symbol_constants_emitted_for_resolved_equ():
     ir = _ir_from_listing("SCREEN EQU $C000\nCOUNT EQU 16\n")
     output = generate_cpp(ir, 2)
@@ -99,11 +99,9 @@ def test_symbol_name_sanitized_for_dotted_names():
 # 3. Multi-entry support
 # ---------------------------------------------------------------------------
 
+
 def test_multi_entry_labels_produce_entry_point_enum():
-    ir = _ir_from_listing(
-        "1000 18       MAIN   CLC\n"
-        "1001 60       HELPER RTS\n"
-    )
+    ir = _ir_from_listing("1000 18       MAIN   CLC\n" "1001 60       HELPER RTS\n")
     output = generate_cpp(ir, 2)
     assert "enum class EntryPoint" in output
     assert "ENTRY_MAIN" in output
@@ -111,51 +109,39 @@ def test_multi_entry_labels_produce_entry_point_enum():
 
 
 def test_multi_entry_labels_produce_wrapper_functions():
-    ir = _ir_from_listing(
-        "1000 18       MAIN   CLC\n"
-        "1001 60       HELPER RTS\n"
-    )
+    ir = _ir_from_listing("1000 18       MAIN   CLC\n" "1001 60       HELPER RTS\n")
     output = generate_cpp(ir, 2)
     assert "void run_MAIN(Context& ctx)" in output
     assert "void run_HELPER(Context& ctx)" in output
 
 
 def test_multi_entry_run_overload_takes_entry_point_parameter():
-    ir = _ir_from_listing(
-        "1000 18       MAIN   CLC\n"
-        "1001 60       HELPER RTS\n"
-    )
+    ir = _ir_from_listing("1000 18       MAIN   CLC\n" "1001 60       HELPER RTS\n")
     output = generate_cpp(ir, 2)
     # forward decl with default argument
-    assert "void run(Context& ctx, EntryPoint entry = EntryPoint::ENTRY_MAIN);" in output
+    assert (
+        "void run(Context& ctx, EntryPoint entry = EntryPoint::ENTRY_MAIN);" in output
+    )
     # definition without default (C++ rule)
     assert "void run(Context& ctx, EntryPoint entry) {" in output
 
 
 def test_multi_entry_dispatch_uses_goto():
-    ir = _ir_from_listing(
-        "1000 18       MAIN   CLC\n"
-        "1001 60       HELPER RTS\n"
-    )
+    ir = _ir_from_listing("1000 18       MAIN   CLC\n" "1001 60       HELPER RTS\n")
     output = generate_cpp(ir, 2)
     assert "goto _lbl_MAIN;" in output
     assert "goto _lbl_HELPER;" in output
 
 
 def test_multi_entry_goto_labels_appear_in_body():
-    ir = _ir_from_listing(
-        "1000 18       MAIN   CLC\n"
-        "1001 60       HELPER RTS\n"
-    )
+    ir = _ir_from_listing("1000 18       MAIN   CLC\n" "1001 60       HELPER RTS\n")
     output = generate_cpp(ir, 2)
     assert "_lbl_MAIN:" in output
     assert "_lbl_HELPER:" in output
 
 
 def test_multi_entry_wrapper_delegates_to_run_with_enum():
-    ir = _ir_from_listing(
-        "1000 18       MAIN   CLC\n"
-    )
+    ir = _ir_from_listing("1000 18       MAIN   CLC\n")
     output = generate_cpp(ir, 1)
     assert "run(ctx, EntryPoint::ENTRY_MAIN);" in output
 
@@ -170,6 +156,7 @@ def test_single_label_also_generates_wrapper():
 # ---------------------------------------------------------------------------
 # 4. Byte-wise operations on word-like symbols
 # ---------------------------------------------------------------------------
+
 
 def test_lo_byte_operand_emits_and_0xff():
     listing = "SCREEN EQU $C000\n1000 A9 00   LDA   #<SCREEN\n"
@@ -217,6 +204,7 @@ def test_hi_byte_result_assigned_to_accumulator():
 # 5. C000-CFFF I/O shim integration
 # ---------------------------------------------------------------------------
 
+
 def test_sta_to_c000_cfff_uses_io_write():
     listing = "1000 8D 00 C0   STA   $C000\n"
     ir = _ir_from_listing(listing)
@@ -259,3 +247,72 @@ def test_io_access_comment_includes_original_operand():
     # comment with original mnemonic/operand should appear
     assert "STA" in output
     assert "$C000" in output
+
+
+# ---------------------------------------------------------------------------
+# 6. Indexed I/O access – runtime index register preserved
+# ---------------------------------------------------------------------------
+
+
+def test_sta_indexed_x_to_c000_uses_ctx_x_offset():
+    listing = "1000 9D 00 C0   STA   $C000,X\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "io_write(0xC000U + ctx.X, ctx.A);" in output
+
+
+def test_lda_indexed_x_from_c000_uses_ctx_x_offset():
+    listing = "1000 BD 00 C0   LDA   $C000,X\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "ctx.A = io_read(0xC000U + ctx.X);" in output
+
+
+def test_sta_indexed_y_to_c000_uses_ctx_y_offset():
+    listing = "1000 99 00 C0   STA   $C000,Y\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "io_write(0xC000U + ctx.Y, ctx.A);" in output
+
+
+def test_lda_indexed_y_from_c000_uses_ctx_y_offset():
+    listing = "1000 B9 00 C0   LDA   $C000,Y\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "ctx.A = io_read(0xC000U + ctx.Y);" in output
+
+
+def test_symbolic_indexed_io_access_preserves_ctx_x():
+    listing = "SCREEN EQU $C000\n1000 9D 00 C0   STA   SCREEN,X\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 2)
+    assert "io_write(0xC000U + ctx.X, ctx.A);" in output
+
+
+def test_non_indexed_io_access_does_not_include_ctx_x_or_ctx_y():
+    listing = "1000 8D 00 C0   STA   $C000\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "io_write(0xC000U, ctx.A);" in output
+    assert "ctx.X" not in output.split("io_write")[1].split(";")[0]
+
+
+# ---------------------------------------------------------------------------
+# 7. Plain-immediate fallback behavior
+# ---------------------------------------------------------------------------
+
+
+def test_plain_immediate_hex_lda_stubs_to_void_0():
+    """LDA #$10 has no byte-wise operator so emits stub (void)0 for now."""
+    listing = "1000 A9 10   LDA   #$10\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "(void)0;" in output
+
+
+def test_plain_immediate_decimal_lda_stubs_to_void_0():
+    """LDA #16 (plain decimal immediate) also stubs to (void)0."""
+    listing = "1000 A9 10   LDA   #16\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "(void)0;" in output

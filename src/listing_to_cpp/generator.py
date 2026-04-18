@@ -118,6 +118,17 @@ def _emit_immediate_expr(operand: str, resolved_syms: dict) -> str | None:
     return None
 
 
+_INDEXED_SUFFIX_RE = re.compile(r",\s*([XxYy])\s*$")
+
+
+def _index_register_from_operand(operand: str) -> str | None:
+    """Return 'ctx.X' or 'ctx.Y' if operand has an index suffix, else None."""
+    m = _INDEXED_SUFFIX_RE.search(operand)
+    if m is None:
+        return None
+    return f"ctx.{m.group(1).upper()}"
+
+
 def _emit_instruction_lines(
     instr: dict,
     io_lookup: dict,
@@ -138,7 +149,9 @@ def _emit_instruction_lines(
     # ---- I/O shim path for classified C000-CFFF accesses ------------------
     io_access = io_lookup.get((line_num, mnemonic))
     if io_access:
-        addr_expr = f"0x{io_access['resolved_address']:04X}U"
+        base_expr = f"0x{io_access['resolved_address']:04X}U"
+        idx_reg = _index_register_from_operand(io_access.get("operand") or "")
+        addr_expr = f"{base_expr} + {idx_reg}" if idx_reg else base_expr
         if mnemonic in _STORE_MNEMONICS:
             src = _MNEMONIC_SRC_REG.get(mnemonic, "0U")
             lines.append(f"    io_write({addr_expr}, {src}); {cmt}")
@@ -172,9 +185,7 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
     instructions: list = ir.get("instructions", [])
     io_accesses: list = ir.get("io_accesses", [])
 
-    io_lookup: dict = {
-        (acc["line"], acc["mnemonic"]): acc for acc in io_accesses
-    }
+    io_lookup: dict = {(acc["line"], acc["mnemonic"]): acc for acc in io_accesses}
 
     resolved_syms: dict = {
         name: info
