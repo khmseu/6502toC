@@ -302,17 +302,19 @@ def test_non_indexed_io_access_does_not_include_ctx_x_or_ctx_y():
 # ---------------------------------------------------------------------------
 
 
-def test_plain_immediate_hex_lda_stubs_to_void_0():
-    """LDA #$10 has no byte-wise operator so emits stub (void)0 for now."""
+def test_plain_immediate_hex_lda_stubs_to_runtime_warning():
+    """LDA #$10 has no byte-wise operator so emits a runtime stderr warning stub."""
     listing = "1000 A9 10   LDA   #$10\n"
     ir = _ir_from_listing(listing)
     output = generate_cpp(ir, 1)
-    assert "(void)0;" in output
+    assert 'std::fprintf(stderr, "unimplemented:' in output
+    assert "LDA #$10" in output
 
 
-def test_plain_immediate_decimal_lda_stubs_to_void_0():
-    """LDA #16 (plain decimal immediate) also stubs to (void)0."""
+def test_plain_immediate_decimal_lda_stubs_to_runtime_warning():
+    """LDA #16 (plain decimal immediate) also stubs to a runtime stderr warning."""
     listing = "1000 A9 10   LDA   #16\n"
     ir = _ir_from_listing(listing)
     output = generate_cpp(ir, 1)
-    assert "(void)0;" in output
+    assert 'std::fprintf(stderr, "unimplemented:' in output
+    assert "LDA #16" in output

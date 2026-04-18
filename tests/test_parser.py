@@ -203,3 +203,33 @@ def test_equ_with_trailing_inline_comment_parses_as_equ():
             "raw": "SCREEN   EQU    $C000   ; base address",
         }
     ]
+
+
+def test_parse_ei_style_addr_colon_lines_for_equ_and_instruction():
+    text = """0000:        C000   1 SCREEN                           EQU    $C000
+2000:A2 F0          17 L2000                             LDX    #$F0
+"""
+
+    parsed = parse_listing(text)
+
+    assert parsed["records"] == [
+        {
+            "type": "equ",
+            "name": "SCREEN",
+            "value": "$C000",
+            "is_current_location_alias": False,
+            "line": 1,
+            "raw": "0000:        C000   1 SCREEN                           EQU    $C000",
+        },
+        {
+            "type": "instruction",
+            "address": "2000",
+            "bytes": ["A2", "F0"],
+            "label": "L2000",
+            "mnemonic": "LDX",
+            "operand": "#$F0",
+            "comment": None,
+            "line": 2,
+            "raw": "2000:A2 F0          17 L2000                             LDX    #$F0",
+        },
+    ]

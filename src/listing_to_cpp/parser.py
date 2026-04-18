@@ -11,6 +11,7 @@ _EQU_RE = re.compile(
     r"^(?P<name>[A-Za-z_][\w.]*)\s+EQU\s+(?P<value>\*|[^;]+?)\s*$",
     re.IGNORECASE,
 )
+_LISTING_PREFIX_RE = re.compile(r"^(?P<addr>[0-9A-Fa-f]{4,6}):(?P<payload>.*)$")
 _ADDRESS_RE = re.compile(r"^[0-9A-Fa-f]{4,6}$")
 _BYTE_RE = re.compile(r"^[0-9A-Fa-f]{2}$")
 _KNOWN_MNEMONICS = {
@@ -167,6 +168,60 @@ def _parse_code_record(raw_line: str, line_number: int):
     }
 
 
+def _normalize_ei_listing_line(raw_line: str) -> str | None:
+    """Normalize EI-style ``ADDR: ...`` lines into parser-friendly form.
+
+    Example input payload style:
+    ``2000:A2 F0          17 L2000 LDX #$F0``
+    becomes
+    ``2000 A2 F0 L2000 LDX #$F0``
+    """
+    match = _LISTING_PREFIX_RE.match(raw_line)
+    if match is None:
+        return None
+
+    listing_addr = match.group("addr").upper()
+    payload = match.group("payload").strip()
+    if not payload:
+        return listing_addr
+
+    code_part, has_comment, comment_part = payload.partition(";")
+    tokens = code_part.strip().split()
+    if not tokens:
+        return listing_addr
+
+    # EI listing format usually contains an object column followed by
+    # source line number and then statement tokens.
+    src_idx = next((i for i, tok in enumerate(tokens) if tok.isdigit()), None)
+    if src_idx is None or src_idx == len(tokens) - 1:
+        stmt_tokens = tokens
+        object_tokens: list[str] = []
+    else:
+        object_tokens = tokens[:src_idx]
+        stmt_tokens = tokens[src_idx + 1 :]
+
+    byte_tokens = [
+        tok.upper()
+        for tok in object_tokens
+        if _BYTE_RE.match(tok) and tok.upper() not in _DATA_DIRECTIVES
+    ]
+
+    # EQU lines in EI listings carry an object/value column before source line
+    # number; for EQU parsing we keep only statement tokens (no leading address).
+    if any(tok.upper() == "EQU" for tok in stmt_tokens):
+        rebuilt = " ".join(stmt_tokens)
+    else:
+        rebuilt_tokens = [listing_addr]
+        if byte_tokens:
+            rebuilt_tokens.extend(byte_tokens)
+        rebuilt_tokens.extend(stmt_tokens)
+        rebuilt = " ".join(rebuilt_tokens)
+
+    if has_comment:
+        rebuilt = f"{rebuilt} ;{comment_part.strip()}"
+    return rebuilt
+
+
 def parse_listing(text: str):
     """Parse listing lines into tolerant typed records."""
     records = []
@@ -176,18 +231,21 @@ def parse_listing(text: str):
         if not stripped:
             continue
 
-        if stripped.startswith(";"):
+        normalized_listing_line = _normalize_ei_listing_line(raw_line)
+        parse_candidate = normalized_listing_line or stripped
+
+        if parse_candidate.startswith(";"):
             records.append(
                 {
                     "type": "comment",
-                    "comment": stripped[1:].strip(),
+                    "comment": parse_candidate[1:].strip(),
                     "line": line_number,
                     "raw": raw_line,
                 }
             )
             continue
 
-        marker_match = _MARKER_RE.match(stripped)
+        marker_match = _MARKER_RE.match(parse_candidate)
         if marker_match:
             keyword = marker_match.group(1).upper()
             value = marker_match.group(2).strip()
@@ -203,18 +261,18 @@ def parse_listing(text: str):
             )
             continue
 
-        if _HEADER_RE.match(stripped):
+        if _HEADER_RE.match(parse_candidate):
             records.append(
                 {
                     "type": "header_marker",
-                    "value": stripped,
+                    "value": parse_candidate,
                     "line": line_number,
                     "raw": raw_line,
                 }
             )
             continue
 
-        equ_candidate = stripped.split(";", 1)[0].rstrip()
+        equ_candidate = parse_candidate.split(";", 1)[0].rstrip()
         equ_match = _EQU_RE.match(equ_candidate)
         if equ_match:
             value = equ_match.group("value").strip()
@@ -230,8 +288,11 @@ def parse_listing(text: str):
             )
             continue
 
-        code_record = _parse_code_record(raw_line=raw_line, line_number=line_number)
+        code_record = _parse_code_record(
+            raw_line=parse_candidate, line_number=line_number
+        )
         if code_record is not None:
+            code_record["raw"] = raw_line
             records.append(code_record)
             continue
 
