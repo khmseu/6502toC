@@ -318,3 +318,43 @@ def test_plain_immediate_decimal_lda_emits_load():
     output = generate_cpp(ir, 1)
     assert "ctx.A = 0x10U" in output
     assert "/* LDA #16 */" in output
+
+
+# ---------------------------------------------------------------------------
+# 8. Implemented instruction paths (control flow + memory)
+# ---------------------------------------------------------------------------
+
+
+def test_beq_emits_conditional_goto_label():
+    listing = "1000 F0 02        BEQ   TARGET\n1002 EA       TARGET NOP\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 2)
+    assert "if (ctx.P & 0x02U) goto _lbl_TARGET;" in output
+
+
+def test_jsr_to_local_label_emits_wrapper_call():
+    listing = "1000 20 03 10   JSR   HELPER\n1003 60       HELPER RTS\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 2)
+    assert "run_HELPER(ctx);" in output
+
+
+def test_rts_emits_return_statement():
+    listing = "1000 60       ENTRY  RTS\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "return; /* RTS */" in output
+
+
+def test_lda_absolute_non_io_uses_mem_read():
+    listing = "1000 AD 00 20   LDA   $2000\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "ctx.A = mem_read(0x2000U);" in output
+
+
+def test_sta_absolute_non_io_uses_mem_write():
+    listing = "1000 8D 00 20   STA   $2000\n"
+    ir = _ir_from_listing(listing)
+    output = generate_cpp(ir, 1)
+    assert "mem_write(0x2000U, ctx.A);" in output
