@@ -16,6 +16,8 @@ def expected_scaffold(source_line_count: int) -> str:
         "// I/O shim interface (implementation provided by caller)\n"
         "extern std::uint8_t io_read(std::uint16_t addr);\n"
         "extern void io_write(std::uint16_t addr, std::uint8_t val);\n"
+        "extern std::uint8_t mem_read(std::uint16_t addr);\n"
+        "extern void mem_write(std::uint16_t addr, std::uint8_t val);\n"
         "\n"
         "// 6502 machine context\n"
         "struct Context {\n"
