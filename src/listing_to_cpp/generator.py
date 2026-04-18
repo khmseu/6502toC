@@ -61,10 +61,10 @@ _BRANCH_COND: dict[str, str] = {
 }
 
 # Addressing-mode regexes
-_INDIRECT_X_RE = re.compile(r"^\((.+),\s*[Xx]\)$")    # (OP,X)
-_INDIRECT_Y_RE = re.compile(r"^\((.+)\),\s*[Yy]$")    # (OP),Y
-_INDIRECT_RE   = re.compile(r"^\((.+)\)$")             # (OP)  - JMP indirect
-_INDEXED_RE    = re.compile(r"^(.+),\s*([XxYy])\s*$")  # OP,X  OP,Y
+_INDIRECT_X_RE = re.compile(r"^\((.+),\s*[Xx]\)$")  # (OP,X)
+_INDIRECT_Y_RE = re.compile(r"^\((.+)\),\s*[Yy]$")  # (OP),Y
+_INDIRECT_RE = re.compile(r"^\((.+)\)$")  # (OP) - JMP indirect
+_INDEXED_RE = re.compile(r"^(.+),\s*([XxYy])\s*$")  # OP,X OP,Y
 _INDEXED_SUFFIX_RE = re.compile(r",\s*([XxYy])\s*$")
 
 
@@ -99,9 +99,9 @@ def _find_sym_cpp(name: str, resolved_syms: dict) -> str | None:
     stripped = name.strip()
     if stripped in resolved_syms:
         return _sanitize(stripped)
-    for k in resolved_syms:
-        if k.lower() == stripped.lower():
-            return _sanitize(k)
+    for key in resolved_syms:
+        if key.lower() == stripped.lower():
+            return _sanitize(key)
     return None
 
 
@@ -135,101 +135,91 @@ def _emit_immediate_expr(operand: str, resolved_syms: dict) -> str | None:
             return f"0x{(val >> 8) & 0xFF:02X}U"
         return f"static_cast<std::uint8_t>(({_sanitize(inner)} >> 8) & 0xFFU)"
 
-    # Binary literal
     if raw.startswith("%"):
         try:
             return f"0x{int(raw[1:], 2):02X}U"
         except ValueError:
             pass
 
-    # Hex literal
     if raw.startswith("$"):
         try:
             return f"0x{int(raw[1:], 16):02X}U"
         except ValueError:
             pass
 
-    # Decimal literal
     try:
         return f"0x{int(raw):02X}U"
     except ValueError:
         pass
 
-    # Named symbol
     sym = _find_sym_cpp(raw, resolved_syms)
     if sym:
         return f"static_cast<std::uint8_t>({sym})"
 
-    # Unknown identifier - emit as cast; C++ compiler will flag missing names
     return f"static_cast<std::uint8_t>({_sanitize(raw)})"
 
 
 def _index_register_from_operand(operand: str) -> str | None:
     """Return 'ctx.X' or 'ctx.Y' if operand has an index suffix, else None."""
-    m = _INDEXED_SUFFIX_RE.search(operand)
-    if m is None:
+    match = _INDEXED_SUFFIX_RE.search(operand)
+    if match is None:
         return None
-    return f"ctx.{m.group(1).upper()}"
+    return f"ctx.{match.group(1).upper()}"
 
 
 def _base_to_addr_cpp(base: str, resolved_syms: dict) -> str:
     """Return a C++ uint16_t expression for a base operand (no index, no parens)."""
     base = base.strip()
-    # Hex literal
     if base.startswith("$"):
         try:
             return f"0x{int(base[1:], 16):04X}U"
         except ValueError:
             pass
-    # Decimal literal
     try:
         val = int(base)
         return f"0x{val:04X}U"
     except ValueError:
         pass
-    # Known EQU symbol
     sym = _find_sym_cpp(base, resolved_syms)
     if sym:
         return f"static_cast<std::uint16_t>({sym})"
-    # Unknown - use sanitized name; C++ compile error guides user
     return f"static_cast<std::uint16_t>({_sanitize(base)})"
 
 
 def _operand_to_addr_expr(operand: str, resolved_syms: dict) -> str:
     """Return a C++ uint16_t address expression for any addressing mode."""
     operand = operand.strip()
-    # (OP,X) - indexed indirect
-    m = _INDIRECT_X_RE.match(operand)
-    if m:
-        base = _base_to_addr_cpp(m.group(1), resolved_syms)
+    match = _INDIRECT_X_RE.match(operand)
+    if match:
+        base = _base_to_addr_cpp(match.group(1), resolved_syms)
         return (
             f"static_cast<std::uint16_t>("
             f"mem_read(static_cast<std::uint16_t>({base} + ctx.X)) | "
             f"mem_read(static_cast<std::uint16_t>({base} + ctx.X + 1U)) << 8)"
         )
-    # (OP),Y - indirect indexed
-    m = _INDIRECT_Y_RE.match(operand)
-    if m:
-        base = _base_to_addr_cpp(m.group(1), resolved_syms)
+
+    match = _INDIRECT_Y_RE.match(operand)
+    if match:
+        base = _base_to_addr_cpp(match.group(1), resolved_syms)
         return (
             f"static_cast<std::uint16_t>("
             f"(mem_read({base}) | mem_read(static_cast<std::uint16_t>({base} + 1U)) << 8) + ctx.Y)"
         )
-    # (OP) - indirect
-    m = _INDIRECT_RE.match(operand)
-    if m:
-        base = _base_to_addr_cpp(m.group(1), resolved_syms)
+
+    match = _INDIRECT_RE.match(operand)
+    if match:
+        base = _base_to_addr_cpp(match.group(1), resolved_syms)
         return (
             f"static_cast<std::uint16_t>("
             f"mem_read({base}) | mem_read(static_cast<std::uint16_t>({base} + 1U)) << 8)"
         )
-    # OP,X or OP,Y
-    m = _INDEXED_RE.match(operand)
-    if m:
-        base = _base_to_addr_cpp(m.group(1), resolved_syms)
-        reg = f"ctx.{m.group(2).upper()}"
+
+    match = _INDEXED_RE.match(operand)
+    if match:
+        base = _base_to_addr_cpp(match.group(1), resolved_syms)
+        reg = f"ctx.{match.group(2).upper()}"
         return f"static_cast<std::uint16_t>({base} + {reg})"
-    # Direct
+
     return _base_to_addr_cpp(operand, resolved_syms)
 
 
@@ -325,7 +315,6 @@ def _emit_memory_instr(
     nz_x = _nz("ctx.X")
     nz_y = _nz("ctx.Y")
 
-    # Accumulator shift/rotate (no operand or explicit "A")
     if mnemonic in ("ASL", "LSR", "ROL", "ROR") and op_upper in ("", "A"):
         if mnemonic == "ASL":
             return [
@@ -350,13 +339,12 @@ def _emit_memory_instr(
                 f"ctx.A = (ctx.A >> 1) | (_c << 7); {nz_a}; }} {cmt}"
             ]
 
-    # 65C02 INC/DEC accumulator
     if mnemonic in ("INC", "DEC") and op_upper in ("", "A"):
         op_str = "++" if mnemonic == "INC" else "--"
         return [f"    {op_str}ctx.A; {nz_a}; {cmt}"]
 
     if not operand.strip():
-        return None  # Unknown implied - fall through to stub
+        return None
 
     addr = _operand_to_addr_expr(operand, resolved_syms)
 
@@ -467,9 +455,9 @@ def _emit_instruction_lines(
     if label:
         lines.append(f"_lbl_{_sanitize(label)}:")
 
-    # ---- I/O shim path for classified C000-CFFF accesses ------------------
+    # I/O shim path for classified C000-CFFF accesses
     io_access = io_lookup.get((line_num, mnemonic))
-    if io_access:
+    if io_access and (mnemonic in _STORE_MNEMONICS or mnemonic in _LOAD_MNEMONICS):
         base_expr = f"0x{io_access['resolved_address']:04X}U"
         idx_reg = _index_register_from_operand(io_access.get("operand") or "")
         addr_expr = f"{base_expr} + {idx_reg}" if idx_reg else base_expr
@@ -482,44 +470,42 @@ def _emit_instruction_lines(
                 lines.append(f"    {dest} = io_read({addr_expr}); {cmt}")
             else:
                 lines.append(f"    (void)io_read({addr_expr}); {cmt}")
-        else:
-            lines.append(f"    (void)io_read({addr_expr}); {cmt}")
         return lines
 
-    # ---- Branch instructions -----------------------------------------------
     cond = _BRANCH_COND.get(mnemonic)
     if cond is not None:
         target = _sanitize(operand) if operand else "_unknown"
         lines.append(f"    if ({cond}) goto _lbl_{target}; {cmt}")
         return lines
 
-    # ---- JMP ---------------------------------------------------------------
     if mnemonic == "JMP":
-        m_ind = _INDIRECT_RE.match(operand)
-        if m_ind:
-            addr_expr = _operand_to_addr_expr(m_ind.group(1), resolved_syms)
+        if _INDIRECT_RE.match(operand):
             lines.append(
-                f"    /* indirect JMP via mem[{addr_expr}] - refactor manually */ {cmt}"
+                f'    std::fprintf(stderr, "unimplemented: JMP {operand}\\n"); {cmt}'
             )
             return lines
         val = _parse_numeric(operand)
         if val is not None or _find_sym_cpp(operand, resolved_syms) is not None:
-            lines.append(f"    /* external goto: {operand} */ {cmt}")
+            lines.append(
+                f'    std::fprintf(stderr, "unimplemented: JMP {operand}\\n"); {cmt}'
+            )
         else:
             lines.append(f"    goto _lbl_{_sanitize(operand)}; {cmt}")
         return lines
 
-    # ---- JSR ---------------------------------------------------------------
     if mnemonic == "JSR":
         val = _parse_numeric(operand)
         sym = _find_sym_cpp(operand, resolved_syms)
         if val is not None or sym is not None:
-            lines.append(f"    /* external call: {operand} */ {cmt}")
+            lines.append(
+                f'    std::fprintf(stderr, "unimplemented: JSR {operand}\\n"); {cmt}'
+            )
+        elif operand in entry_label_set:
+            lines.append(f"    run_{_sanitize(operand)}(ctx); {cmt}")
         else:
             lines.append(f"    run_{_sanitize(operand)}(ctx); {cmt}")
         return lines
 
-    # ---- RTS / RTI ---------------------------------------------------------
     if mnemonic == "RTS":
         lines.append(f"    return; {cmt}")
         return lines
@@ -527,7 +513,6 @@ def _emit_instruction_lines(
         lines.append(f"    ctx.P = mem_read(0x0100U + ++ctx.SP); return; {cmt}")
         return lines
 
-    # ---- NOP / BRK ---------------------------------------------------------
     if mnemonic == "NOP":
         lines.append(f"    /* NOP */ {cmt}")
         return lines
@@ -535,13 +520,11 @@ def _emit_instruction_lines(
         lines.append(f"    /* BRK */ {cmt}")
         return lines
 
-    # ---- Implied / register-transfer / stack / flag instructions -----------
     implied = _emit_implied_line(mnemonic, cmt)
     if implied is not None:
         lines.append(implied)
         return lines
 
-    # ---- Immediate operand -------------------------------------------------
     if operand.startswith("#"):
         imm = _emit_immediate_expr(operand, resolved_syms)
         if imm is not None:
@@ -550,13 +533,11 @@ def _emit_instruction_lines(
                 lines.extend(impl)
                 return lines
 
-    # ---- Memory operand (non-I/O, non-immediate) ---------------------------
     mem_impl = _emit_memory_instr(mnemonic, operand, resolved_syms, cmt)
     if mem_impl is not None:
         lines.extend(mem_impl)
         return lines
 
-    # ---- Default stub: warn at runtime ------------------------------------
     asm_text = f"{mnemonic}{(' ' + operand) if operand else ''}"
     lines.append(f'    std::fprintf(stderr, "unimplemented: {asm_text}\\n"); {cmt}')
     return lines
@@ -576,7 +557,6 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
         if not info.get("is_current_location_alias") and info.get("value") is not None
     }
 
-    # Collect entry labels in order of first appearance
     entry_labels: list[str] = []
     seen_labels: set[str] = set()
     for instr in instructions:
@@ -590,7 +570,6 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
 
     out: list[str] = []
 
-    # ---- File header -------------------------------------------------------
     out.append("// Auto-generated by listing_to_cpp")
     out.append("#include <cstdint>")
     out.append("#include <cstdio>")
@@ -598,7 +577,6 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
     out.append("namespace converted {")
     out.append("")
 
-    # ---- Shim interface (I/O and general memory) ---------------------------
     out.append("// I/O shim interface (implementation provided by caller)")
     out.append("extern std::uint8_t io_read(std::uint16_t addr);")
     out.append("extern void io_write(std::uint16_t addr, std::uint8_t val);")
@@ -606,7 +584,6 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
     out.append("extern void mem_write(std::uint16_t addr, std::uint8_t val);")
     out.append("")
 
-    # ---- Context struct ----------------------------------------------------
     out.append("// 6502 machine context")
     out.append("struct Context {")
     out.append("    std::uint8_t A{0};")
@@ -617,7 +594,6 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
     out.append("};")
     out.append("")
 
-    # ---- Symbol constants --------------------------------------------------
     if resolved_syms:
         out.append("// Symbol constants")
         for name, info in resolved_syms.items():
@@ -632,7 +608,6 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
             out.append(f"constexpr {type_str} {cpp_name} = {val_str};")
         out.append("")
 
-    # ---- Entry point enum --------------------------------------------------
     if has_entries:
         out.append("// Entry points")
         out.append("enum class EntryPoint : int {")
@@ -641,7 +616,6 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
         out.append("};")
         out.append("")
 
-    # ---- Forward declarations ----------------------------------------------
     if has_entries:
         first_cpp = _sanitize(entry_labels[0])
         out.append(
@@ -653,7 +627,6 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
         out.append("void run(Context& ctx);")
     out.append("")
 
-    # ---- run() body --------------------------------------------------------
     if has_entries:
         out.append("void run(Context& ctx, EntryPoint entry) {")
         out.append("    switch (entry) {")
@@ -665,18 +638,25 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
         out.append("        default: break;")
         out.append("    }")
         for instr in instructions:
-            out.extend(_emit_instruction_lines(instr, io_lookup, resolved_syms, entry_label_set))
+            out.extend(
+                _emit_instruction_lines(
+                    instr, io_lookup, resolved_syms, entry_label_set
+                )
+            )
         out.append("    return;")
         out.append("}")
     else:
         out.append("void run(Context& ctx) {")
         for instr in instructions:
-            out.extend(_emit_instruction_lines(instr, io_lookup, resolved_syms, entry_label_set))
+            out.extend(
+                _emit_instruction_lines(
+                    instr, io_lookup, resolved_syms, entry_label_set
+                )
+            )
         out.append("    return;")
         out.append("}")
     out.append("")
 
-    # ---- Entry wrapper functions -------------------------------------------
     for lbl in entry_labels:
         cpp_name = _sanitize(lbl)
         out.append(f"void run_{cpp_name}(Context& ctx) {{")
@@ -684,7 +664,6 @@ def generate_cpp(ir: dict, source_line_count: int) -> str:
         out.append("}")
         out.append("")
 
-    # ---- Footer ------------------------------------------------------------
     out.append(f"constexpr std::uint32_t generated_from_lines = {source_line_count};")
     out.append("")
     out.append("}  // namespace converted")
